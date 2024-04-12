@@ -8,19 +8,21 @@ void draw_things(){
 
     draw_3d_point(eye, glm::vec3(2,0,0));
     draw_3d_point(eye, glm::vec3(-2,0,0));
-
     draw_3d_point(eye, glm::vec3(0,0,2));
     draw_3d_point(eye, glm::vec3(0,0,-2));
+
+    draw_3d_point(eye, glm::vec3(2,0,2));
+    draw_3d_point(eye, glm::vec3(2,0,-2));
+    draw_3d_point(eye, glm::vec3(-2,0,2));
+    draw_3d_point(eye, glm::vec3(-2,0,-2));
 }
 
 int main() {
+
     initGLFW(500, 500, "test render");
     start_gl();
-
-    
     
     while(the_show_should_continue()){
-
        
         update_window();
         update_gl();
