@@ -148,16 +148,21 @@ void create_openxr_instance()
     OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemID, &m_systemProperties), "Failed to get SystemProperties.");
 }
 
-void create_sesion(){
-    
-}
+XrSessionCreateInfo sessionCI{XR_TYPE_SESSION_CREATE_INFO};
 
+XrSession m_session = XR_NULL_HANDLE;
+
+//parei em 2.3
 void start_openxr()
 {
     create_openxr_instance();
-    create_sesion();
+
 }
 
 void update_openxr()
 {
+}
+
+void end_openxr(){
+    OPENXR_CHECK(xrDestroySession(m_session), "Failed to destroy Session.");
 }

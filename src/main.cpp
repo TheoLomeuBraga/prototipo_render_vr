@@ -35,5 +35,9 @@ int main() {
         draw_things();
         
     }
+
+    end_window();
+    end_openxr();
+    //end_gl();
     return 0;
 }

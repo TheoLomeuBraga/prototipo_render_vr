@@ -34,10 +34,12 @@ GLFWwindow* initGLFW(int width, int height, const char* title) {
     return window;
 }
 
-void update_window(GLFWwindow* window = win) {
+void update_window() {
     glfwPollEvents();
-    glfwSwapBuffers(window);
+    glfwSwapBuffers(win);
 }
 
 bool the_show_should_continue(){return !glfwWindowShouldClose(win);}
+
+void end_window(){glfwTerminate();}
 
