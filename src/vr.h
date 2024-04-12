@@ -1,122 +1,163 @@
 #pragma once
 
+#define XR_USE_GRAPHICS_API_OPENGL
+
+#define XR_USE_PLATFORM_WIN32
+#include "GL/wglew.h"
+#include <unknwn.h>
+
 #include "openxr/openxr.h"
 #include "openxr/openxr_platform.h"
+#include <vector>
 
-// Função auxiliar para verificar erros do OpenXR
-void checkOpenXRError(XrResult result, const char* message) {
-    if (result != XR_SUCCESS) {
-        std::cerr << "Erro " << result << " ao " << message << std::endl;
-        exit(-1);
+void OPENXR_CHECK(XrResult result, const char *message)
+{
+    if (result != XR_SUCCESS)
+    {
+        // Converter o código de resultado em uma string descritiva
+        char resultString[XR_MAX_RESULT_STRING_SIZE];
+        xrResultToString(nullptr, result, resultString);
+
+        // Imprimir a mensagem de erro com detalhes
+        std::cerr << "Erro " << result << " (" << resultString << ") ao " << message << std::endl;
+        exit(EXIT_FAILURE);
     }
 }
 
-XrInstanceCreateInfo createInfo = { XR_TYPE_SESSION_CREATE_INFO };
-XrSystemGetInfo systemGetInfo = {};
-XrSessionCreateInfo sessionCreateInfo = { XR_TYPE_SESSION_CREATE_INFO };
-XrSessionBeginInfo beginInfo = {};
+bool OPENXR_CHECK_start_vr(XrResult result, const char *message)
+{
+    if (result != XR_SUCCESS)
+    {
+        // Converter o código de resultado em uma string descritiva
+        char resultString[XR_MAX_RESULT_STRING_SIZE];
+        xrResultToString(nullptr, result, resultString);
 
-// Inicialização do OpenXR
-XrInstance instance;
-XrSystemId systemId;
-XrSession session;
-XrResult result;
+        // Imprimir a mensagem de erro com detalhes
+        std::cerr << "Erro " << result << " (" << resultString << ") ao " << message << std::endl;
 
+        return 1;
+    }
+    return 0;
+}
 
-//strcpy(createInfo.applicationInfo.applicationName, "prototipo render vr");
+XrInstance m_xrInstance = {};
+std::vector<const char *> m_activeAPILayers = {};
+std::vector<const char *> m_activeInstanceExtensions = {};
+std::vector<std::string> m_apiLayers = {};
+std::vector<std::string> m_instanceExtensions = {};
+
+XrDebugUtilsMessengerEXT m_debugUtilsMessenger = {};
+
+XrFormFactor m_formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+XrSystemId m_systemID = {};
+XrSystemProperties m_systemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
+
+XrApplicationInfo AppInfo;
+XrSystemGetInfo systemGI{XR_TYPE_SYSTEM_GET_INFO};
 
 // Função para criar uma instância do OpenXR
-XrInstance create_openxr_instance() {
+void create_openxr_instance()
+{
 
-    // Definir as configurações para a instância do OpenXR
-    createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.applicationInfo.applicationVersion = 1;
-    createInfo.applicationInfo.engineVersion = 1;
-    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    strncpy(AppInfo.applicationName, "prototipo render vr", XR_MAX_APPLICATION_NAME_SIZE);
+    AppInfo.applicationVersion = 1;
+    strncpy(AppInfo.engineName, "prototipo render vr", XR_MAX_ENGINE_NAME_SIZE);
+    AppInfo.engineVersion = 1;
+    AppInfo.apiVersion = XR_CURRENT_API_VERSION;
 
-    // Definir o nome da aplicação
-    strcpy(createInfo.applicationInfo.applicationName, "prototipo render vr");
+    m_instanceExtensions.push_back(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    m_instanceExtensions.push_back(XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
 
-    createInfo.enabledApiLayerCount = 0;
-    createInfo.enabledApiLayerNames = nullptr;
-    createInfo.enabledExtensionCount = 0;
-    createInfo.enabledExtensionNames = nullptr;
+    // Get all the API Layers from the OpenXR runtime.
+    uint32_t apiLayerCount = 0;
+    std::vector<XrApiLayerProperties> apiLayerProperties;
+    OPENXR_CHECK(xrEnumerateApiLayerProperties(0, &apiLayerCount, nullptr), "Failed to enumerate ApiLayerProperties.");
+    apiLayerProperties.resize(apiLayerCount, {XR_TYPE_API_LAYER_PROPERTIES});
+    OPENXR_CHECK(xrEnumerateApiLayerProperties(apiLayerCount, &apiLayerCount, apiLayerProperties.data()), "Failed to enumerate ApiLayerProperties.");
 
-    // Criar a instância do OpenXR
-    result = xrCreateInstance(&createInfo, &instance);
-    checkOpenXRError(result, "criar uma instância do OpenXR");
+    // Check the requested API layers against the ones from the OpenXR. If found add it to the Active API Layers.
+    for (auto &requestLayer : m_apiLayers)
+    {
+        for (auto &layerProperty : apiLayerProperties)
+        {
+            // strcmp returns 0 if the strings match.
 
-    return instance;
-}
-
-void start_openxr() {
-
-    create_openxr_instance();
-
-    // Selecionar o sistema OpenXR (provavelmente VR)
-    systemGetInfo.type = XR_TYPE_SYSTEM_GET_INFO;
-    systemGetInfo.next = nullptr;
-    result = xrGetSystem(instance, &systemGetInfo, &systemId);
-    checkOpenXRError(result, "selecionar o sistema OpenXR");
-
-    // Criar uma sessão OpenXR
-    sessionCreateInfo.next = nullptr;
-    sessionCreateInfo.systemId = systemId;
-    systemGetInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-    result = xrCreateSession(instance, &sessionCreateInfo, &session);
-    checkOpenXRError(result, "criar uma sessão OpenXR");
-
-    // Configurar e configurar o ambiente de renderização
-
-    // Configurar hand tracking (se necessário)
-
-    // Iniciar a sessão OpenXR
-    beginInfo.type = XR_TYPE_SESSION_BEGIN_INFO;
-    beginInfo.next = nullptr;
-    result = xrBeginSession(session, &beginInfo);
-    checkOpenXRError(result, "iniciar a sessão OpenXR");
-
-    // Outras inicializações e configurações podem ser feitas aqui
-
-    // A partir daqui, a sessão OpenXR está ativa e pronta para uso
-}
-
-
-
-
-void update_openxr() {
-    // Estrutura para armazenar os eventos de OpenXR
-    XrEventDataBuffer eventDataBuffer = {};
-    eventDataBuffer.type = XR_TYPE_EVENT_DATA_BUFFER;
-    eventDataBuffer.next = nullptr;
-
-    // Loop de eventos OpenXR
-    while (true) {
-        // Pegar o próximo evento OpenXR
-        XrResult result = xrPollEvent(instance, &eventDataBuffer);
-        if (result != XR_SUCCESS) {
-            // Tratar erro
-            break;
-        }
-
-        // Processar o evento OpenXR, se necessário
-        switch (eventDataBuffer.type) {
-            // Processar diferentes tipos de eventos OpenXR aqui, se necessário
-            // Por exemplo, tratar eventos de entrada do controlador, eventos de sessão, etc.
-            default:
+            if (strcmp(requestLayer.c_str(), layerProperty.layerName) != 0)
+            {
+                continue;
+            }
+            else
+            {
+                m_activeAPILayers.push_back(requestLayer.c_str());
                 break;
-        }
-
-        // Verificar se há mais eventos a serem processados
-        if (result == XR_EVENT_UNAVAILABLE) {
-            // Não há mais eventos
-            break;
+            }
         }
     }
 
-    // Atualizar o estado da sessão OpenXR
-    XrFrameState frameState = { XR_TYPE_FRAME_STATE };
-    xrWaitFrame(session, nullptr, &frameState);
+    // Get all the Instance Extensions from the OpenXR instance.
+    uint32_t extensionCount = 0;
+    std::vector<XrExtensionProperties> extensionProperties;
+    OPENXR_CHECK(xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr), "Failed to enumerate InstanceExtensionProperties.");
+    extensionProperties.resize(extensionCount, {XR_TYPE_EXTENSION_PROPERTIES});
+    OPENXR_CHECK(xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, extensionProperties.data()), "Failed to enumerate InstanceExtensionProperties.");
 
-    // Outras atualizações do estado da sessão OpenXR podem ser feitas aqui
+    // Check the requested Instance Extensions against the ones from the OpenXR runtime.
+    // If an extension is found add it to Active Instance Extensions.
+    // Log error if the Instance Extension is not found.
+    for (auto &requestedInstanceExtension : m_instanceExtensions)
+    {
+        bool found = false;
+        for (auto &extensionProperty : extensionProperties)
+        {
+            // strcmp returns 0 if the strings match.
+            if (strcmp(requestedInstanceExtension.c_str(), extensionProperty.extensionName) != 0)
+            {
+                continue;
+            }
+            else
+            {
+                m_activeInstanceExtensions.push_back(requestedInstanceExtension.c_str());
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            // XR_TUT_LOG_ERROR("Failed to find OpenXR instance extension: " << requestedInstanceExtension);
+            std::cerr << "Failed to find OpenXR instance extension: " << requestedInstanceExtension << std::endl;
+        }
+    }
+
+    XrInstanceCreateInfo instanceCI = {XR_TYPE_INSTANCE_CREATE_INFO};
+    instanceCI.createFlags = 0;
+    instanceCI.applicationInfo = AppInfo;
+    instanceCI.enabledApiLayerCount = static_cast<uint32_t>(m_activeAPILayers.size());
+    instanceCI.enabledApiLayerNames = m_activeAPILayers.data();
+    instanceCI.enabledExtensionCount = static_cast<uint32_t>(m_activeInstanceExtensions.size());
+    instanceCI.enabledExtensionNames = m_activeInstanceExtensions.data();
+
+    while (OPENXR_CHECK_start_vr(xrCreateInstance(&instanceCI, &m_xrInstance), "Failed to create Instance."))
+    {
+    }
+
+    // Get the XrSystemId from the instance and the supplied XrFormFactor.
+    systemGI.formFactor = m_formFactor;
+    OPENXR_CHECK(xrGetSystem(m_xrInstance, &systemGI, &m_systemID), "Failed to get SystemID.");
+
+    // Get the System's properties for some general information about the hardware and the vendor.
+    OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemID, &m_systemProperties), "Failed to get SystemProperties.");
+}
+
+void create_sesion(){
+    
+}
+
+void start_openxr()
+{
+    create_openxr_instance();
+    create_sesion();
+}
+
+void update_openxr()
+{
 }
