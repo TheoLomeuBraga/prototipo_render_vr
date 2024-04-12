@@ -20,11 +20,14 @@ void draw_things(){
 int main() {
 
     initGLFW(500, 500, "test render");
+    start_openxr();
+    
     start_gl();
     
     while(the_show_should_continue()){
        
         update_window();
+        //update_openxr();
         update_gl();
 
         draw_things();
