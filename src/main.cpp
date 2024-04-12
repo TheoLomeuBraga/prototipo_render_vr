@@ -1,5 +1,6 @@
 #include "render.h"
 #include "window.h"
+#include "vr.h"
 
 void draw_things(){
 
@@ -18,7 +19,7 @@ int main() {
 
     
     
-    while(!glfwWindowShouldClose(win)){
+    while(the_show_should_continue()){
 
        
         update_window();

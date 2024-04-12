@@ -39,3 +39,5 @@ void update_window(GLFWwindow* window = win) {
     glfwSwapBuffers(window);
 }
 
+bool the_show_should_continue(){return !glfwWindowShouldClose(win);}
+
