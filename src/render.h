@@ -166,13 +166,16 @@ Eye create_eye(glm::vec3 position = glm::vec3(0.0f,0.0f,0.0f),glm::quat quaterni
 }
 
 const glm::quat base_rotation(1.0f,0.0f,0.0f,0.0f);
-void draw_3d_point(Eye eye, glm::vec3 position,glm::quat quaternion = base_rotation,glm::vec3 scale = glm::vec3(1,1,1),glm::vec3 color = glm::vec3(0.5,0.5,1)){
+void draw_3d_point(Eye eye, glm::vec3 position,glm::quat quaternion = base_rotation,glm::vec3 scale = glm::vec3(1,1,1),glm::vec3 color = glm::vec3(0,0,0)){
     glUseProgram(main_shader);
 
     // Configure outras uniformes
+    bool rgb = color.x == 0 && color.y == 0 && color.z == 0;
     glUniform3f(colorLoc, color.x, color.y, color.z);
 
-    
+    if(rgb){
+        glUniform3f(colorLoc, 1, 0, 0);
+    }
 
     // Configure os uniformes do shader
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(eye.view));
@@ -187,11 +190,17 @@ void draw_3d_point(Eye eye, glm::vec3 position,glm::quat quaternion = base_rotat
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(tf));
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
+    if(rgb){
+        glUniform3f(colorLoc, 0, 1, 0);
+    }
     glm::mat4 tf2 = tf;
     glm::rotate(tf2,glm::radians(90.0f),glm::vec3(0,0,1));
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(tf2));
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
+    if(rgb){
+        glUniform3f(colorLoc, 0, 0, 1);
+    }
     glm::mat4 tf3 = tf;
     glm::rotate(tf2,glm::radians(90.0f),glm::vec3(0,1,0));
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(tf3));

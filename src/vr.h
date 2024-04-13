@@ -64,7 +64,7 @@ XrSession m_session = XR_NULL_HANDLE;
 XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
 
 
-void start_openxr()
+void openxr_create_instance()
 {
     strncpy(AppInfo.applicationName, "prototipo render vr", XR_MAX_APPLICATION_NAME_SIZE);
     AppInfo.applicationVersion = 1;
@@ -155,10 +155,14 @@ void start_openxr()
     OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemID, &m_systemProperties), "Failed to get SystemProperties.");
 }
 
+void start_openxr(){
+    openxr_create_instance();
+}
+
 bool m_sessionRunning = true;
 bool m_applicationRunning = true;
 
-void update_openxr()
+void openxr_base_loop()
 {
     // Poll OpenXR for a new event.
     XrEventDataBuffer eventData{XR_TYPE_EVENT_DATA_BUFFER};
@@ -269,6 +273,11 @@ void update_openxr()
         }
         }
     }
+}
+
+void update_openxr(){
+    openxr_base_loop();
+
 }
 
 bool the_vr_show_should_continue() { return m_sessionRunning && m_applicationRunning; }
