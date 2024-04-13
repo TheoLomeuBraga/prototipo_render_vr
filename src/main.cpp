@@ -26,7 +26,7 @@ int main() {
     
     start_gl();
     
-    while(the_show_should_continue()){
+    while(the_window_show_should_continue() && the_vr_show_should_continue()){
        
         update_window();
         update_openxr();

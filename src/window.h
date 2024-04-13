@@ -39,7 +39,7 @@ void update_window() {
     glfwSwapBuffers(win);
 }
 
-bool the_show_should_continue(){return !glfwWindowShouldClose(win);}
+bool the_window_show_should_continue(){return !glfwWindowShouldClose(win);}
 
 void end_window(){glfwTerminate();}
 
