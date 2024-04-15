@@ -22,7 +22,7 @@ void draw_things(){
 int main() {
 
     initGLFW(500, 500, "test render");
-    start_openxr();
+    while(start_openxr()){}
     
     start_gl();
     
