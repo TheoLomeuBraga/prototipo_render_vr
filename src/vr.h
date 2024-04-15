@@ -10,6 +10,8 @@
 #include "openxr/openxr_platform.h"
 #include <vector>
 #include <algorithm>
+#include <map>
+#include <unordered_map>
 #include "print.h"
 
 #include <glm/glm.hpp>
@@ -20,7 +22,7 @@
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtc/constants.hpp>
 
-// parei em 3.1.2 
+
 
 void OPENXR_CHECK(XrResult result, const char *message)
 {
@@ -168,19 +170,136 @@ int openxr_create_instance()
     return 0;
 }
 
+std::vector<XrViewConfigurationType> m_applicationViewConfigurations = {XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_MONO};
+std::vector<XrViewConfigurationType> m_viewConfigurations;
+XrViewConfigurationType m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
+std::vector<XrViewConfigurationView> m_viewConfigurationViews;
+
+struct SwapchainInfo
+{
+    XrSwapchain swapchain = XR_NULL_HANDLE;
+    int64_t swapchainFormat = 0;
+    std::vector<void *> imageViews;
+};
+std::vector<SwapchainInfo> m_colorSwapchainInfos = {};
+std::vector<SwapchainInfo> m_depthSwapchainInfos = {};
+
+enum SwapchainType
+{
+    COLOR = 0,
+    DEPTH = 1
+};
+
+std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageOpenGLKHR>>> gl_swapchainImagesMap{};
+
+XrSwapchainImageBaseHeader *gl_AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count) {
+    gl_swapchainImagesMap[swapchain].first = type;
+    gl_swapchainImagesMap[swapchain].second.resize(count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
+    return reinterpret_cast<XrSwapchainImageBaseHeader *>(gl_swapchainImagesMap[swapchain].second.data());
+}
+
+
+int openxr_create_spaw_chains()
+{
+    // Gets the View Configuration Types. The first call gets the count of the array that will be returned. The next call fills out the array.
+    uint32_t viewConfigurationCount = 0;
+    OPENXR_CHECK(xrEnumerateViewConfigurations(m_xrInstance, m_systemID, 0, &viewConfigurationCount, nullptr), "Failed to enumerate View Configurations.");
+    m_viewConfigurations.resize(viewConfigurationCount);
+    OPENXR_CHECK(xrEnumerateViewConfigurations(m_xrInstance, m_systemID, viewConfigurationCount, &viewConfigurationCount, m_viewConfigurations.data()), "Failed to enumerate View Configurations.");
+
+    // Pick the first application supported View Configuration Type con supported by the hardware.
+    for (const XrViewConfigurationType &viewConfiguration : m_applicationViewConfigurations)
+    {
+        if (std::find(m_viewConfigurations.begin(), m_viewConfigurations.end(), viewConfiguration) != m_viewConfigurations.end())
+        {
+            m_viewConfiguration = viewConfiguration;
+            break;
+        }
+    }
+    if (m_viewConfiguration == XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM)
+    {
+        std::cerr << "Failed to find a view configuration type. Defaulting to XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO." << std::endl;
+        m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    }
+
+    // Gets the View Configuration Views. The first call gets the count of the array that will be returned. The next call fills out the array.
+    uint32_t viewConfigurationViewCount = 0;
+    OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemID, m_viewConfiguration, 0, &viewConfigurationViewCount, nullptr), "Failed to enumerate ViewConfiguration Views.");
+    m_viewConfigurationViews.resize(viewConfigurationViewCount, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
+    OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemID, m_viewConfiguration, viewConfigurationViewCount, &viewConfigurationViewCount, m_viewConfigurationViews.data()), "Failed to enumerate ViewConfiguration Views.");
+
+    // Get the supported swapchain formats as an array of int64_t and ordered by runtime preference.
+    uint32_t formatCount = 0;
+    OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, 0, &formatCount, nullptr), "Failed to enumerate Swapchain Formats");
+    std::vector<int64_t> formats(formatCount);
+    OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data()), "Failed to enumerate Swapchain Formats");
+    if (GL_SRGB8_ALPHA8 == 0)
+    {
+        std::cout << "Failed to find depth format for Swapchain." << std::endl;
+        return 1;
+    }
+    for (size_t i = 0; i < m_viewConfigurationViews.size(); i++)
+    {
+        SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
+        SwapchainInfo &depthSwapchainInfo = m_depthSwapchainInfos[i];
+
+        // Fill out an XrSwapchainCreateInfo structure and create an XrSwapchain.
+        // Color.
+        XrSwapchainCreateInfo swapchainCI{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        swapchainCI.createFlags = 0;
+        swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        swapchainCI.format = GL_SRGB8_ALPHA8;                                                  // Use GraphicsAPI to select the first compatible format.
+        swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount; // Use the recommended values from the XrViewConfigurationView.
+        swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
+        swapchainCI.height = m_viewConfigurationViews[i].recommendedImageRectHeight;
+        swapchainCI.faceCount = 1;
+        swapchainCI.arraySize = 1;
+        swapchainCI.mipCount = 1;
+        OPENXR_CHECK(xrCreateSwapchain(m_session, &swapchainCI, &colorSwapchainInfo.swapchain), "Failed to create Color Swapchain");
+        colorSwapchainInfo.swapchainFormat = swapchainCI.format; // Save the swapchain format for later use.
+
+        // Depth.
+        swapchainCI.createFlags = 0;
+        swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        swapchainCI.format = GL_DEPTH24_STENCIL8;                                              // Use GraphicsAPI to select the first compatible format.
+        swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount; // Use the recommended values from the XrViewConfigurationView.
+        swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
+        swapchainCI.height = m_viewConfigurationViews[i].recommendedImageRectHeight;
+        swapchainCI.faceCount = 1;
+        swapchainCI.arraySize = 1;
+        swapchainCI.mipCount = 1;
+        OPENXR_CHECK(xrCreateSwapchain(m_session, &swapchainCI, &depthSwapchainInfo.swapchain), "Failed to create Depth Swapchain");
+        depthSwapchainInfo.swapchainFormat = swapchainCI.format; // Save the swapchain format for later use.
+
+        // Get the number of images in the color/depth swapchain and allocate Swapchain image data via GraphicsAPI to store the returned array.
+        uint32_t colorSwapchainImageCount = 0;
+        OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo.swapchain, 0, &colorSwapchainImageCount, nullptr), "Failed to enumerate Color Swapchain Images.");
+        XrSwapchainImageBaseHeader *colorSwapchainImages = gl_AllocateSwapchainImageData(colorSwapchainInfo.swapchain, SwapchainType::COLOR, colorSwapchainImageCount);
+        OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo.swapchain, colorSwapchainImageCount, &colorSwapchainImageCount, colorSwapchainImages), "Failed to enumerate Color Swapchain Images.");
+
+        uint32_t depthSwapchainImageCount = 0;
+        OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, 0, &depthSwapchainImageCount, nullptr), "Failed to enumerate Depth Swapchain Images.");
+        XrSwapchainImageBaseHeader *depthSwapchainImages = gl_AllocateSwapchainImageData(depthSwapchainInfo.swapchain, SwapchainType::DEPTH, depthSwapchainImageCount);
+        OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, depthSwapchainImages), "Failed to enumerate Depth Swapchain Images.");
+
+        //parei em 3.1.5 
+    }
+
+    return 0;
+}
+
 int start_openxr()
 {
-    if(openxr_create_instance()){return 1;}
+    if (openxr_create_instance())
+        return 1;
+    if (openxr_create_spaw_chains())
+        return 1;
+
     return 0;
 }
 
 bool m_sessionRunning = true;
 bool m_applicationRunning = true;
-
-std::vector<XrViewConfigurationType> m_applicationViewConfigurations = {XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_MONO};
-std::vector<XrViewConfigurationType> m_viewConfigurations;
-XrViewConfigurationType m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
-std::vector<XrViewConfigurationView> m_viewConfigurationViews;
 
 void openxr_base_loop()
 {
@@ -251,7 +370,7 @@ void openxr_base_loop()
                 // SessionState is ready. Begin the XrSession using the XrViewConfigurationType.
                 XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
                 sessionBeginInfo.primaryViewConfigurationType = m_viewConfiguration;
-                //sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+                // sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 OPENXR_CHECK(xrBeginSession(m_session, &sessionBeginInfo), "Failed to begin Session.");
                 m_sessionRunning = true;
             }
@@ -277,8 +396,6 @@ void openxr_base_loop()
             // Store state for reference across the application.
             m_sessionState = sessionStateChanged->state;
 
-            
-
             break;
         }
         default:
@@ -300,17 +417,6 @@ struct headset_info_struct
 };
 typedef struct headset_info_struct headset_info;
 */
-
-
-
-struct SwapchainInfo
-{
-    XrSwapchain swapchain = XR_NULL_HANDLE;
-    int64_t swapchainFormat = 0;
-    std::vector<void *> imageViews;
-};
-std::vector<SwapchainInfo> m_colorSwapchainInfos = {};
-std::vector<SwapchainInfo> m_depthSwapchainInfos = {};
 
 uint32_t viewConfigurationCount;
 
@@ -340,12 +446,10 @@ void get_view()
     }
 
     // Gets the View Configuration Views. The first call gets the count of the array that will be returned. The next call fills out the array.
-    
+
     OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemID, m_viewConfiguration, 0, &viewConfigurationViewCount, nullptr), "Failed to enumerate ViewConfiguration Views.");
     m_viewConfigurationViews.resize(viewConfigurationViewCount, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
     OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemID, m_viewConfiguration, viewConfigurationViewCount, &viewConfigurationViewCount, m_viewConfigurationViews.data()), "Failed to enumerate ViewConfiguration Views.");
-
-    
 }
 
 void update_openxr()

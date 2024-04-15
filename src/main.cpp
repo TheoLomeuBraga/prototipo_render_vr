@@ -24,7 +24,7 @@ int main() {
     initGLFW(500, 500, "test render");
     while(start_openxr()){}
     
-    start_gl();
+    start_gl(500, 500);
     
     while(the_window_show_should_continue() && the_vr_show_should_continue()){
        
