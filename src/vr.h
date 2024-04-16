@@ -4,7 +4,12 @@
 
 #define XR_USE_PLATFORM_WIN32
 #include "GL/wglew.h"
+#include "GL/gl.h"
 #include <unknwn.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#define GLFW_EXPOSE_NATIVE_WGL
+#define GLFW_NATIVE_INCLUDE_NONE
+#include <GLFW/glfw3native.h>
 
 #include "openxr/openxr.h"
 #include "openxr/openxr_platform.h"
@@ -21,8 +26,6 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtc/constants.hpp>
-
-
 
 void OPENXR_CHECK(XrResult result, const char *message)
 {
@@ -76,8 +79,11 @@ XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
 
 XrEventDataSessionStateChanged *sessionStateChanged;
 
+XrInstanceCreateInfo instanceCI = {XR_TYPE_INSTANCE_CREATE_INFO};
+
 int openxr_create_instance()
 {
+
     strncpy(AppInfo.applicationName, "prototipo render vr", XR_MAX_APPLICATION_NAME_SIZE);
     AppInfo.applicationVersion = 1;
     strncpy(AppInfo.engineName, "prototipo render vr", XR_MAX_ENGINE_NAME_SIZE);
@@ -147,7 +153,6 @@ int openxr_create_instance()
         }
     }
 
-    XrInstanceCreateInfo instanceCI = {XR_TYPE_INSTANCE_CREATE_INFO};
     instanceCI.createFlags = 0;
     instanceCI.applicationInfo = AppInfo;
     instanceCI.enabledApiLayerCount = static_cast<uint32_t>(m_activeAPILayers.size());
@@ -166,6 +171,64 @@ int openxr_create_instance()
 
     // Get the System's properties for some general information about the hardware and the vendor.
     OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemID, &m_systemProperties), "Failed to get SystemProperties.");
+
+    return 0;
+}
+
+#if defined(XR_USE_PLATFORM_WIN32)
+XrGraphicsBindingOpenGLWin32KHR graphicsBinding{};
+#elif defined(XR_USE_PLATFORM_XLIB)
+XrGraphicsBindingOpenGLXlibKHR graphicsBinding{};
+#elif defined(XR_USE_PLATFORM_XCB)
+XrGraphicsBindingOpenGLXcbKHR graphicsBinding{};
+#elif defined(XR_USE_PLATFORM_WAYLAND)
+XrGraphicsBindingOpenGLWaylandKHR graphicsBinding{};
+#endif
+
+void *gl_GetGraphicsBinding()
+{
+
+    // https://github.com/KhronosGroup/OpenXR-SDK-Source/blob/f122f9f1fc729e2dc82e12c3ce73efa875182854/src/tests/hello_xr/graphicsplugin_opengl.cpp#L123-L144
+#if defined(XR_USE_PLATFORM_WIN32)
+
+    graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
+    XrGraphicsBindingOpenGLWin32KHR graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
+    HWND hWnd = glfwGetWin32Window(win);
+    graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR;
+    graphicsBinding.next = nullptr;
+    graphicsBinding.hDC = GetDC(hWnd); // Obtém o HDC da janela
+    graphicsBinding.hGLRC = wglCreateContext(graphicsBinding.hDC);
+
+#elif defined(XR_USE_PLATFORM_XLIB)
+    graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
+    graphicsBinding.xDisplay = window.context.xDisplay;
+    graphicsBinding.visualid = window.context.visualid;
+    graphicsBinding.glxFBConfig = window.context.glxFBConfig;
+    graphicsBinding.glxDrawable = window.context.glxDrawable;
+    graphicsBinding.glxContext = window.context.glxContext;
+#elif defined(XR_USE_PLATFORM_XCB)
+    graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_XCB_KHR};
+    graphicsBinding.connection = window.connection;
+    graphicsBinding.visualid = window.context.visualid;
+    graphicsBinding.glxDrawable = window.context.glxDrawable;
+#elif defined(XR_USE_PLATFORM_WAYLAND)
+    graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_WAYLAND};
+    graphicsBinding.display = reinterpret_cast<wl_display *>(0xFFFFFFFF);
+#endif
+    return &graphicsBinding;
+}
+
+int openxr_create_section()
+{
+    XrSessionCreateInfo sessionCI{XR_TYPE_SESSION_CREATE_INFO};
+
+    sessionCI.next = gl_GetGraphicsBinding();
+    sessionCI.createFlags = 0;
+    sessionCI.systemId = m_systemID;
+
+    
+
+    OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCI, &m_session), "Failed to create Session.");
 
     return 0;
 }
@@ -192,12 +255,60 @@ enum SwapchainType
 
 std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageOpenGLKHR>>> gl_swapchainImagesMap{};
 
-XrSwapchainImageBaseHeader *gl_AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count) {
+XrSwapchainImageBaseHeader *gl_AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count)
+{
     gl_swapchainImagesMap[swapchain].first = type;
     gl_swapchainImagesMap[swapchain].second.resize(count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
     return reinterpret_cast<XrSwapchainImageBaseHeader *>(gl_swapchainImagesMap[swapchain].second.data());
 }
 
+void *gl_GetSwapchainImage(XrSwapchain swapchain, uint32_t index) { return (void *)(uint64_t)gl_swapchainImagesMap[swapchain].second[index].image; }
+
+class gl_ImageViewCreateInfo
+{
+public:
+    void *image;
+    uint32_t view;
+    uint32_t format;
+    SwapchainType aspect;
+    uint32_t baseMipLevel;
+    uint32_t levelCount;
+    uint32_t baseArrayLayer;
+    uint32_t layerCount;
+
+    gl_ImageViewCreateInfo()
+    {
+        view = GL_TEXTURE_2D;
+        format = GL_SRGB8_ALPHA8;
+        this->aspect = aspect;
+        baseMipLevel = 0;
+        levelCount = 1;
+        baseArrayLayer = 0;
+        layerCount = 1;
+    }
+};
+
+std::unordered_map<GLenum, gl_ImageViewCreateInfo> gl_imageViews = {};
+
+void *gl_CreateImageView(gl_ImageViewCreateInfo &imageViewCI)
+{
+    GLuint framebuffer = 0;
+    glGenFramebuffers(1, &framebuffer);
+
+    GLenum attachment = imageViewCI.aspect == COLOR ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, GL_TEXTURE_2D, (GLuint)(uint64_t)imageViewCI.image, imageViewCI.baseMipLevel);
+
+    GLenum result = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    if (result != GL_FRAMEBUFFER_COMPLETE)
+    {
+        std::cout << "ERROR: OPENGL: Framebuffer is not complete." << std::endl;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    gl_imageViews[framebuffer] = imageViewCI;
+    return (void *)(uint64_t)framebuffer;
+}
 
 int openxr_create_spaw_chains()
 {
@@ -282,8 +393,32 @@ int openxr_create_spaw_chains()
         XrSwapchainImageBaseHeader *depthSwapchainImages = gl_AllocateSwapchainImageData(depthSwapchainInfo.swapchain, SwapchainType::DEPTH, depthSwapchainImageCount);
         OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, depthSwapchainImages), "Failed to enumerate Depth Swapchain Images.");
 
-        //parei em 3.1.5 
+        // Per image in the swapchains, fill out a GraphicsAPI::ImageViewCreateInfo structure and create a color/depth image view.
+        for (uint32_t j = 0; j < colorSwapchainImageCount; j++)
+        {
+            gl_ImageViewCreateInfo imageViewCI;
+            imageViewCI.image = gl_GetSwapchainImage(colorSwapchainInfo.swapchain, j);
+            imageViewCI.aspect = COLOR;
+            imageViewCI.baseMipLevel = 0;
+            imageViewCI.levelCount = 1;
+            imageViewCI.baseArrayLayer = 0;
+            imageViewCI.layerCount = 1;
+            colorSwapchainInfo.imageViews.push_back(gl_CreateImageView(imageViewCI));
+        }
+        for (uint32_t j = 0; j < depthSwapchainImageCount; j++)
+        {
+            gl_ImageViewCreateInfo imageViewCI;
+            imageViewCI.image = gl_GetSwapchainImage(colorSwapchainInfo.swapchain, j);
+            imageViewCI.aspect = DEPTH;
+            imageViewCI.baseMipLevel = 0;
+            imageViewCI.levelCount = 1;
+            imageViewCI.baseArrayLayer = 0;
+            imageViewCI.layerCount = 1;
+            depthSwapchainInfo.imageViews.push_back(gl_CreateImageView(imageViewCI));
+        }
     }
+
+    // parei em 3.2
 
     return 0;
 }
@@ -291,6 +426,8 @@ int openxr_create_spaw_chains()
 int start_openxr()
 {
     if (openxr_create_instance())
+        return 1;
+    if (openxr_create_section())
         return 1;
     if (openxr_create_spaw_chains())
         return 1;

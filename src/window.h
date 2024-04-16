@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include "render.h"
 
+
+
 GLFWwindow* win = NULL;
 
 GLFWwindow* initGLFW(int width, int height, const char* title) {
