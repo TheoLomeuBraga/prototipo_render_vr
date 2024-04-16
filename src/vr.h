@@ -27,6 +27,8 @@
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtc/constants.hpp>
 
+
+
 void OPENXR_CHECK(XrResult result, const char *message)
 {
     if (result != XR_SUCCESS)
@@ -175,29 +177,30 @@ int openxr_create_instance()
     return 0;
 }
 
+
+
 #if defined(XR_USE_PLATFORM_WIN32)
-XrGraphicsBindingOpenGLWin32KHR graphicsBinding{};
+    XrGraphicsBindingOpenGLWin32KHR graphicsBinding{};
 #elif defined(XR_USE_PLATFORM_XLIB)
-XrGraphicsBindingOpenGLXlibKHR graphicsBinding{};
+    XrGraphicsBindingOpenGLXlibKHR graphicsBinding{};
 #elif defined(XR_USE_PLATFORM_XCB)
-XrGraphicsBindingOpenGLXcbKHR graphicsBinding{};
+    XrGraphicsBindingOpenGLXcbKHR graphicsBinding{};
 #elif defined(XR_USE_PLATFORM_WAYLAND)
-XrGraphicsBindingOpenGLWaylandKHR graphicsBinding{};
+    XrGraphicsBindingOpenGLWaylandKHR graphicsBinding{};
 #endif
 
 void *gl_GetGraphicsBinding()
 {
 
+    
+
     // https://github.com/KhronosGroup/OpenXR-SDK-Source/blob/f122f9f1fc729e2dc82e12c3ce73efa875182854/src/tests/hello_xr/graphicsplugin_opengl.cpp#L123-L144
 #if defined(XR_USE_PLATFORM_WIN32)
 
     graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
-    XrGraphicsBindingOpenGLWin32KHR graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
-    HWND hWnd = glfwGetWin32Window(win);
     graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR;
-    graphicsBinding.next = nullptr;
-    graphicsBinding.hDC = GetDC(hWnd); // Obtém o HDC da janela
-    graphicsBinding.hGLRC = wglCreateContext(graphicsBinding.hDC);
+    graphicsBinding.hDC = GetDC(glfwGetWin32Window(win)); // Obter o HDC da janela GLFW
+    graphicsBinding.hGLRC = wglGetCurrentContext(); // Obter o contexto OpenGL atual
 
 #elif defined(XR_USE_PLATFORM_XLIB)
     graphicsBinding = {XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
@@ -225,8 +228,6 @@ int openxr_create_section()
     sessionCI.next = gl_GetGraphicsBinding();
     sessionCI.createFlags = 0;
     sessionCI.systemId = m_systemID;
-
-    
 
     OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCI, &m_session), "Failed to create Session.");
 
